@@ -1,17 +1,3 @@
-module cmpoaction
-
-using LinearAlgebra
-using Zygote
-using Optim
-using OMEinsum
-using Printf
-using ChainRulesCore
-using ChainRules
-using Parameters
-using SparseArrays
-import Base: transpose
-
-
 ### ### ### ### ### ### ### ### ### ###
 ###         Basic structure         ###
 ### ### ### ### ### ### ### ### ### ###
@@ -33,7 +19,7 @@ struct CMPO{T<:Number}
     R::Array{T, 3}  # 3 legs: d x D x D
     P::Array{T, 4}  # 4 legs: d x d x D x D
 
-    function cmpo(Q::AbstractMatrix{T}, L::Array{T, 3}, R::Array{T, 3}, P::Array{T, 4}) where T
+    function CMPO(Q::AbstractMatrix{T}, L::Array{T, 3}, R::Array{T, 3}, P::Array{T, 4}) where T
         @assert size(Q, 1) == size(Q, 2)
         @assert size(L, 2) == size(Q, 1) && size(L, 3) == size(Q, 1) 
         @assert size(R, 2) == size(Q, 1) && size(R, 3) == size(Q, 1) 
@@ -57,7 +43,7 @@ struct CMPS{T<:Number}
     Q::Matrix{T}    # 2 legs: D x D
     R::Array{T, 3}  # 3 legs: d x D x D
 
-    function cmps(Q::AbstractMatrix{T}, R::Array{T, 3}) where T
+    function CMPS(Q::AbstractMatrix{T}, R::Array{T, 3}) where T
         @assert size(Q, 1) == size(Q, 2) 
         @assert size(R, 2) == size(Q, 1) && size(R, 3) == size(Q, 1) 
         new{T}(Q, R)
@@ -74,14 +60,14 @@ struct PauliSpin
     Sp::Matrix{Float64}
     Sm::Matrix{Float64}
 
-    function paulispin()
+    function PauliSpin()
         new(
-            I(2),           # Identity matrix
-            [0 1; 1 0],     # Pauli X matrix
-            [0 -im; im 0],  # Pauli iY matrix
-            [1 0; 0 -1],    # Pauli Z matrix
-            [0 1; 0 0],     # Raising operator
-            [0 0; 1 0]      # Lowering operator
+            I(2),                      # Identity matrix
+            [0.0 1.0; 1.0 0.0],        # Pauli X matrix
+            [0.0 0.0-im; 0.0+im 0.0],  # Pauli iY matrix
+            [1.0 0.0; 0.0 -1.0],       # Pauli Z matrix
+            [0.0 1.0; 0.0 0.0],        # Raising operator
+            [0.0 0.0; 1.0 0.0]         # Lowering operator
         )
     end
 end
@@ -109,13 +95,13 @@ struct IsingModel{T<:Number}
     ph_leg::Int
     d::Int
 
-    function isingmodel(Gamma::T, J::T) where T
+    function IsingModel(Gamma::T, J::T) where T
         s = PauliSpin()
         Q = Gamma * s.X
         L = sqrt(J) * reshape(s.Z, 1, 2, 2)
         R = sqrt(J) * reshape(s.Z, 1, 2, 2)
         P = zeros(T, 1, 1, 2, 2)
-        new{T}(cmpo(Q, L, R, P), Diagonal(ones(T, 1)), 2, 1)
+        new{T}(CMPO(Q, L, R, P), Diagonal(ones(T, 1)), 2, 1)
     end
 end
 
@@ -138,7 +124,7 @@ struct XXZModel{T<:Number}
     ph_leg::Int
     d::Int
 
-    function xxzmodel(Jz::T, Jxy::T) where T
+    function XXZModel(Jz::T, Jxy::T) where T
         s = PauliSpin()
         Q = zeros(T, 2, 2)
         L = vcat(sqrt(abs(Jxy) / 2) * reshape(s.Sp, 1, 2, 2),
@@ -153,7 +139,7 @@ struct XXZModel{T<:Number}
         col_indices = [2, 1, 3]  
         values = [sign(Jxy), sign(Jxy), -sign(Jz)]
         W = sparse(row_indices, col_indices, values, 3, 3)
-        new{T}(cmpo(Q, L, R, P), W, 2, 3)
+        new{T}(CMPO(Q, L, R, P), W, 2, 3)
     end
 end
 
@@ -167,7 +153,7 @@ function transpose(mpo::CMPO{T}) where T
     L_t = mpo.R
     R_t = mpo.L
     P_t = ein"abmn->abnm"(mpo.P)
-    return cmpo(Q_t, L_t, R_t, P_t)
+    return CMPO(Q_t, L_t, R_t, P_t)
 end
 
 function act(mpo::CMPO{T}, mps::CMPS{T}) where T
@@ -196,7 +182,7 @@ function act(mpo::CMPO{T}, mps::CMPS{T}) where T
              ein"mnab,ncd->mcadb"(mpo.P, mps.R)
     R_rslt = reshape(R_rslt, d, Do*Ds, Do*Ds)
 
-    return cmps(Q_rslt, R_rslt)
+    return CMPS(Q_rslt, R_rslt)
 end
 
 function eigensolver(M::Matrix{Float64})
@@ -207,7 +193,7 @@ end
 function project(mps::CMPS, U::Matrix)
     Q = U' * mps.Q * U
     R_new = ein"(ip,lpq),qj -> lij"(U', mps.R, U)
-    return cmps(Q, R_new)
+    return CMPS(Q, R_new)
 end
 
 function diagQ(mps::CMPS)
@@ -306,10 +292,10 @@ function adaptive_mera_update(mps::CMPS, beta::Float64, chi::Int, atol::Float64=
     # 计算当前步骤和前一步骤之间 logfidelity 的差异
     ΔlnF = abs(Lc - Lp)
     
-    # println("Adaptive MERA Update\n")
-    # println("step        θ/π               ΔlnF                1.0 - F      ")     
-    # println("----  ----------------  -----------------   -------------------")
-    # println(@sprintf("%03i   %.10e   %.10e   %.10e", step, 1.0, ΔlnF, ΔF))
+    println("Adaptive MERA Update\n")
+    println("step        θ/π               ΔlnF                1.0 - F      ")     
+    println("----  ----------------  -----------------   -------------------")
+    println(@sprintf("%03i   %.10e   %.10e   %.10e", step, 1.0, ΔlnF, ΔF))
 
     while step < maxiter
         step += 1   
@@ -338,7 +324,7 @@ function adaptive_mera_update(mps::CMPS, beta::Float64, chi::Int, atol::Float64=
 
         ΔF = abs(exp(Lc) / n₀ - 1.0)
         ΔlnF = abs(Lc - Lp)
-        # println(@sprintf("%03i   %.10e   %.10e   %.10e", step, θ/π, ΔlnF, ΔF))
+        println(@sprintf("%03i   %.10e   %.10e   %.10e", step, θ/π, ΔlnF, ΔF))
 
         Pc = Pn
         Lp = Lc
@@ -367,7 +353,7 @@ function variational_compr(mps::CMPS, beta::Float64, chi::Int, init::Union{CMPS,
     function loss_function(QR)
         Q = reshape(QR[1:chi*chi], chi, chi)
         R = reshape(QR[chi*chi+1:end], size(R))
-        psi = cmps(Q, R)
+        psi = CMPS(Q, R)
         return -Fidelity(psi, mps, beta)
     end
 
@@ -380,11 +366,11 @@ function variational_compr(mps::CMPS, beta::Float64, chi::Int, init::Union{CMPS,
 
     # "normalize"
     Q_optimized .-= maximum(Q_optimized)
-    psi = cmps(Q_optimized, R_optimized)
+    psi = CMPS(Q_optimized, R_optimized)
     # Ff = Fidelity(psi, mps, beta) - 0.5*ln_ovlp(mps, mps, beta)
     
     # checkpoint
-    # datasave(data_cmps(Q_optimized, R_optimized), chkp_loc)
+    # datasave(data_CMPS(Q_optimized, R_optimized), chkp_loc)
     println(result)
     # println(@sprintf "|1 - Fidelity| Change: %.5e -> %.5e\n" -1+Fi -1+Ff)
 
@@ -524,7 +510,5 @@ function Corr(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMa
     return numerator / denominator
 end
 
-
-end
 
 
