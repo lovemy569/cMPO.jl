@@ -16,6 +16,6 @@ include("cMPOAction.jl")
 
 export CMPO, CMPS, XXZModel, IsingModel, PauliSpin
 
-export act, transpose, multiply, variational_compr,F,Cv,chi,chi2,spectral, Corr
+export act, transpose, multiply, variational_compr, f, cv, chi, chi2, spectral, corr
 
 end

@@ -50,7 +50,8 @@ struct CMPS{T<:Number}
     end
 end
 
-""" The 1/2-PauliSpin operator
+""" 
+The 1/2-PauliSpin operator
 """
 struct PauliSpin
     Id::Matrix{Float64}
@@ -156,16 +157,15 @@ function transpose(mpo::CMPO{T}) where T
     return CMPO(Q_t, L_t, R_t, P_t)
 end
 
+""" 
+Act the cMPO to the right of cMPS
+    --                   -- --         --
+    | I + ε Q    √(ε) L   | | I + ε Q   |
+    |                     | |           |
+    | √(ε) R     P        | | √(ε) R    |
+    --                   -- --         --
+"""
 function act(mpo::CMPO{T}, mps::CMPS{T}) where T
-    """ act the CMPS to the right of cMPO
-    --                              --   --            --
-    | I + dtau Q  -- sqrt(dtau) R -- |   | I + dtau Q   |
-    |                                |   |              |
-    |       |                        |   |       |      |
-    | sqrt(dtau) L        P          |   | sqrt(dtau) R |
-    |       |                        |   |       |      |
-    --                              --   --            --
-    """
     Do = size(mpo.Q, 1)
     Ds = size(mps.Q, 1)
     d = size(mps.R, 1)
@@ -185,28 +185,50 @@ function act(mpo::CMPO{T}, mps::CMPS{T}) where T
     return CMPS(Q_rslt, R_rslt)
 end
 
+""" 
+Manually symmetrize M before the eigen decomposition
+"""
 function eigensolver(M::Matrix{Float64})
     M_sym = eigen(0.5 * (M + M'))
     return M_sym
 end
 
+""" 
+Perform a unitary transformation in the imaginary-time direction
+U is the eigenvector that projects QR to the truncated state
+"""
 function project(mps::CMPS, U::Matrix)
     Q = U' * mps.Q * U
     R_new = ein"(ip,lpq),qj -> lij"(U', mps.R, U)
     return CMPS(Q, R_new)
 end
 
+""" 
+Transform the cMPS to the gauge where Q is a diagonalized matrix 
+"""
 function diagQ(mps::CMPS)
     _, U = eigensolver(mps.Q)
     return project(mps, U)
 end
 
-function energy_cut(mps::CMPS, chi::Int)
+"""
+Initialize the isometry 
+Keep the chi largest eigenvalues in the Q matrix of the cMPS
+"""
+function energy_cut(mps::CMPS, bond::Int)
     _, v = eigensolver(mps.Q)
-    P = v[:, end-chi+1:end]
+    P = v[:, end-bond+1:end]
     return P
 end
 
+""" 
+Act the LEFT of cMPS to the right of cMPS
+    --                   -- --         --
+    |                     | | I + ε Q   |
+    | I + ε Q    √(ε) R   | |           |
+    |                     | | √(ε) R    |
+    --                   -- --         --
+"""
 function density_matrix(mps1::CMPS, mps2::CMPS)
     D1 = size(mps1.Q, 1)
     D2 = size(mps2.Q, 1)
@@ -221,6 +243,9 @@ function density_matrix(mps1::CMPS, mps2::CMPS)
     return M
 end
 
+"""
+Calculate the logarithm and free energy function
+"""
 function logsumexp(x)
     m = maximum(x)
     return m + log(sum(exp.(x .- m)))
@@ -228,68 +253,83 @@ end
 
 function log_tr_expm(beta, mat)
     w,_ = eigensolver(mat)
-    
     y = logsumexp(beta .* w)
-    
     return y
 end
 
+"""
+For Zygote forward propagation
+"""
 function log_tr_expm_forward(beta, mat)
     y = log_tr_expm(beta, mat)
     return y
 end
 
+"""
+For Zygote backward propagation
+∂y/∂β = Σᵢ λᵢ ∂/∂β (e^(βλᵢ - y))
+∂y/∂λᵢ = Σᵢ β ∂/∂β (e^(βλᵢ - y))
+"""
 function ChainRules.rrule(::typeof(log_tr_expm_forward), beta, mat)
     vals, vecs = eigensolver(mat)
     y = logsumexp(beta .* vals)
-    function log_tr_expm_pullback(Δy)
-        ∂y_∂beta = sum(vals .* exp.(beta .* vals .- y))
-        betā = Δy * ∂y_∂beta
+    function log_tr_expm_pullback(deltay)
+        partialy_partialbeta = sum(vals .* exp.(beta .* vals .- y))
+        betaback = deltay * partialy_partialbeta
 
-        Λ = exp.(beta .* vals .- y)
-        ∂y_∂mat = transpose(vecs * Diagonal(Λ) * vecs')
-        mat̄ = Δy * beta * ∂y_∂mat
-        return ChainRules.NoTangent(), betā, mat̄
+        lambda = exp.(beta .* vals .- y)
+        partialy_partialmat = transpose(vecs * Diagonal(lambda) * vecs')
+        matback = deltay * beta * partialy_partialmat
+        return ChainRules.NoTangent(), betaback, matback
     end
     return y, log_tr_expm_pullback
 end
 
+"""
+Calculate the logarithm and free energy function
+"""
 function ln_ovlp(mps1::CMPS, mps2::CMPS, beta::Float64)
-    """ calculate log(<mps1|mps2>) """
     M = density_matrix(mps1, mps2)
     y = log_tr_expm_forward(beta, M)
     return y
 end
 
+"""
+More general free energy function
+F = ⟨ψ | H | 𝜆⟩ / √(⟨ψ | ψ⟩)
+"""
 function Fidelity(psi::CMPS, mps::CMPS, beta::Float64)
     up = ln_ovlp(psi, mps, beta)
     dn = ln_ovlp(psi, psi, beta)
     return up - 0.5 * dn
 end
 
+"""
+Interpolation Optimization
+"""
 function interpolate_cut(cut1::Matrix, cut2::Matrix, theta::Float64)
     mix = sin(theta) * cut1 + cos(theta) * cut2
     U, _, V = svd(mix)
     return U * V'
 end
 
-function adaptive_mera_update(mps::CMPS, beta::Float64, chi::Int, atol::Float64=1e-12, btol::Float64=1e-12, maxiter::Int=50, interpolate::Bool=true)
+function adaptive_mera_update(mps::CMPS, beta::Float64, bond::Int, atol::Float64=1e-9, btol::Float64=1e-9, maxiter::Int=50, interpolate::Bool=true)
     step = 1
     n₀ = exp(ln_ovlp(mps, mps, beta))
 
-    # 定义损失函数
+    # Defining the loss function
     loss(P) = ln_ovlp(project(mps, P), mps, beta) - 0.5 * ln_ovlp(project(mps, P), project(mps, P), beta)
 
-    # 计算当前的 isometry Pc，对应于当前的 mps
-    Pc = energy_cut(mps, chi)
+    # Truncating virtual bond dimensions
+    Pc = energy_cut(mps, bond)
 
-    # 初始化损失函数值
+    # Initialize the loss function value
     Lp = 9.9e9
     Lc = loss(Pc)
 
-    # 计算当前 fidelity 与 1.0 的差异
+    # Calculate the difference between the current fidelity and 1.0
     ΔF = abs(exp(Lc) / n₀ - 1.0)
-    # 计算当前步骤和前一步骤之间 logfidelity 的差异
+    # Calculate the difference in logfidelity between the current step and the previous step
     ΔlnF = abs(Lc - Lp)
     
     println("Adaptive MERA Update\n")
@@ -302,8 +342,6 @@ function adaptive_mera_update(mps::CMPS, beta::Float64, chi::Int, atol::Float64=
         grad = Zygote.gradient(loss, Pc)[1]
         F = svd(grad)
         Pn = F.U * F.Vt
- 
-        # 在 unitary 矩阵之间插值
         θ = π
         proceed = interpolate
         while proceed
@@ -337,72 +375,64 @@ function adaptive_mera_update(mps::CMPS, beta::Float64, chi::Int, atol::Float64=
     return project(mps, Pc)
 end
 
-
-function variational_compr(mps::CMPS, beta::Float64, chi::Int, init::Union{CMPS, Nothing}=nothing, tol::Float64=1e-9)
-    if init === nothing
-        psi = adaptive_mera_update(mps, beta, chi)
-        # Fi = Fidelity(psi, mps, beta) - 0.5*ln_ovlp(mps, mps, beta)
-        psi = diagQ(psi)
-    else
-        psi = init
-    end
-
+function variational_compr(mps::CMPS, beta::Float64, bond::Int, tol::Float64=1e-9)
+    psi = adaptive_mera_update(mps, beta, bond)
+    psi = diagQ(psi)
     Q = diagm(diag(psi.Q))
     R = copy(psi.R)
 
     function loss_function(QR)
-        Q = reshape(QR[1:chi*chi], chi, chi)
-        R = reshape(QR[chi*chi+1:end], size(R))
+        Q = reshape(QR[1:bond*bond], bond, bond)
+        R = reshape(QR[bond*bond+1:end], size(R))
         psi = CMPS(Q, R)
         return -Fidelity(psi, mps, beta)
     end
 
+    # Vectorized stitching
     QR_initial = vcat(vec(Q), vec(R))
-    result = optimize(loss_function, QR_initial, LBFGS(), Optim.Options(f_tol = 2.220446049250313e-9,g_tol=tol, iterations=100))
+    result = optimize(loss_function, QR_initial, LBFGS(), Optim.Options(f_tol = 2.220446049250313e-9,g_tol=tol, iterations=50))
 
     QR_optimized = result.minimizer
-    Q_optimized = reshape(QR_optimized[1:chi*chi], chi, chi)
-    R_optimized = reshape(QR_optimized[chi*chi+1:end], size(R))
+    Q_optimized = reshape(QR_optimized[1:bond*bond], bond, bond)
+    R_optimized = reshape(QR_optimized[bond*bond+1:end], size(R))
 
-    # "normalize"
     Q_optimized .-= maximum(Q_optimized)
     psi = CMPS(Q_optimized, R_optimized)
-    # Ff = Fidelity(psi, mps, beta) - 0.5*ln_ovlp(mps, mps, beta)
-    
-    # checkpoint
-    # datasave(data_CMPS(Q_optimized, R_optimized), chkp_loc)
     println(result)
-    # println(@sprintf "|1 - Fidelity| Change: %.5e -> %.5e\n" -1+Fi -1+Ff)
 
     return psi
 end
 
+"""
+Convert right vector to left vector
+"""
 function multiply(W::Matrix, mps::CMPS)
     R1 = ein"mn, nab->mab"(W, mps.R)
     return CMPS(mps.Q, R1)
 end
 
-function F(psi::CMPS, Lpsi::CMPS, T::CMPO, beta::Float64)
-    """ calculate the free energy by
-            -(1/beta) * log [<Lpsi|T|psi> / <Lpsi|psi>]
-        T: cMPO
-        psi: CMPS (right eigenvector)
-        Lpsi: CMPS (left eigenvector)
-        beta: inverse temperature
-    """
+
+### ### ### ### ### ### ### ### ### ###
+###       Physical observables      ###
+### ### ### ### ### ### ### ### ### ###
+
+""" 
+Calculate the free energy by
+f = -(1/beta) * ln [<Lpsi|T|psi> / <Lpsi|psi>]
+"""
+function f(psi::CMPS, Lpsi::CMPS, T::CMPO, beta::Float64)
     Tpsi = act(T, psi)
     up = ln_ovlp(Lpsi, Tpsi, beta)
     dn = ln_ovlp(Lpsi, psi, beta)
     return (- up + dn) / beta
 end
 
-function Cv(psi::CMPS, Lpsi::CMPS, T::CMPO, beta::Float64)
-    """ calculate the specific heat 
-        T: CMPO
-        psi: CMPS (right eigenvector)
-        Lpsi: CMPS (left eigenvector)
-        beta: inverse temperature
-    """
+""" 
+Calculate the specific heat 
+c = β² [ (⟨K_{|-+-|}²⟩_{K_{|-+-|}} - ⟨K_{|-+-|}⟩_{K_{|-+-|}}²) - ...
+    (⟨K_{|--|}²⟩_{K_{|--|}} - ⟨K_{|--|}⟩_{K_{|--|}}²) ]
+"""
+function cv(psi::CMPS, Lpsi::CMPS, T::CMPO, beta::Float64)
     Tpsi = act(T, psi)
     M = density_matrix(Lpsi, Tpsi)
     w, _ = eigensolver(M)
@@ -417,6 +447,41 @@ function Cv(psi::CMPS, Lpsi::CMPS, T::CMPO, beta::Float64)
     return (beta^2) * (up - dn)
 end
 
+""" 
+Calculate unequal-imaginary-time correlator
+⟨Aᵢ(τ) Bᵢ⟩ = Tr(e^{-(β-τ)K_{|-+-|}} A e^{-τ K_{|-+-|}} B) / Tr(e^{-β K_{|-+-|}})
+"""
+function corr(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMatrix, beta::Float64, tau::Float64)
+    totalD = size(O1, 1) * size(psi.Q, 1) * size(psi.Q, 1)
+    matI = Matrix(I, size(psi.Q, 1), size(psi.Q, 1))
+    matO1 = reshape(ein"(ab,cd),ef->acebdf"(matI, O1, matI), totalD, totalD)
+    matO2 = reshape(ein"(ab,cd),ef->acebdf"(matI, O2, matI), totalD, totalD)
+    
+    Tpsi = act(T, psi)
+    M = density_matrix(Lpsi, Tpsi)
+
+    eig = eigensolver(M)
+    w = eig.values .- maximum(eig.values)
+    v = eig.vectors
+
+    matO1 = v' * matO1 * v
+    matO2 = v' * matO2 * v
+
+    expw_a = Diagonal(exp.((beta - tau) .* w))
+    expw_b = Diagonal(exp.(tau .* w))
+    expw = Diagonal(exp.(beta .* w))
+
+    numerator = tr(expw_a * matO1 * expw_b * matO2)
+    denominator = tr(expw)
+
+    return numerator / denominator
+end
+
+""" 
+Calculate the Matsubara frequency susceptibility
+χ(iω) = (1/Z) Σ_{m,n} (Ṡ_{nm}ᶻ Ṡ_{mn}ᶻ (e^{-βΛₘ} - e^{-βΛₙ})) / (iω - Λₘ + Λₙ)
+where Z = Σₙ e^{-βΛₙ} and Ṡᶻ = U† (I_{|-} ⊗ Sᶻ ⊗ I_{-|}) U
+"""
 function chi(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMatrix, beta::Float64, iomega::Float64)
     totalD = size(O1, 1) * size(psi.Q, 1) * size(psi.Q, 1)
     matI = Matrix(I, size(psi.Q, 1), size(psi.Q, 1))
@@ -442,6 +507,11 @@ function chi(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMat
     return result
 end
 
+""" 
+Calculate the dynamic susceptibility
+χ''(ω) = - (π/Z) Σ_{m,n} Ṡ_{nm}ᶻ Ṡ_{mn}ᶻ (e^{-βΛₘ} - e^{-βΛₙ}) δ(ω - Λₘ + Λₙ),
+where δ(x) = lim_{η→0} (1/π) (η / (x² + η²)).
+"""
 function chi2(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMatrix, beta::Float64, omega::Float64, eta::Float64)
     totalD = size(O1, 1) * size(psi.Q, 1) * size(psi.Q, 1)
     matI = Matrix(I, size(psi.Q, 1), size(psi.Q, 1))
@@ -469,45 +539,12 @@ function chi2(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMa
     return result
 end
 
+""" 
+Calculate spectral function
+S(ω) = 2χ''(ω) / (1 - e^{-βω})
+"""
 function spectral(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMatrix, beta::Float64, omega::Float64, eta::Float64)
-    """ calculate spectral function """
     return 2 * chi2(psi, Lpsi, T, O1, O2, beta, omega, eta) / (1 - exp(-beta * omega))
-end
-
-function Corr(psi::CMPS, Lpsi::CMPS, T::CMPO, O1::AbstractMatrix, O2::AbstractMatrix, beta::Float64, tau::Float64)
-    """ calculate unequal-imaginary-time correlator
-            tr[exp(-beta*K) O1(0) O2(tau)]
-        where K is the K-matrix corresponding to <Lpsi|T|psi>
-        K plays the role of effective Hamiltonian
-        T: CMPO
-        psi: CMPS (right eigenvector)
-        Lpsi: CMPS (left eigenvector)
-        O1, O2: observables
-        beta: inverse temperature
-    """
-    totalD = size(O1, 1) * size(psi.Q, 1) * size(psi.Q, 1)
-    matI = Matrix(I, size(psi.Q, 1), size(psi.Q, 1))
-    matO1 = reshape(ein"(ab,cd),ef->acebdf"(matI, O1, matI), totalD, totalD)
-    matO2 = reshape(ein"(ab,cd),ef->acebdf"(matI, O2, matI), totalD, totalD)
-    
-    Tpsi = act(T, psi)
-    M = density_matrix(Lpsi, Tpsi)
-
-    eig = eigensolver(M)
-    w = eig.values .- maximum(eig.values)
-    v = eig.vectors
-
-    matO1 = v' * matO1 * v
-    matO2 = v' * matO2 * v
-
-    expw_a = Diagonal(exp.((beta - tau) .* w))
-    expw_b = Diagonal(exp.(tau .* w))
-    expw = Diagonal(exp.(beta .* w))
-
-    numerator = tr(expw_a * matO1 * expw_b * matO2)
-    denominator = tr(expw)
-
-    return numerator / denominator
 end
 
 

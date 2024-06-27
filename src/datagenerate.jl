@@ -1,17 +1,17 @@
 using LinearAlgebra
 using Printf
-using Plots
 using JLD2
 using cMPO
 
-bondD = 15
+bondD = 10
 beta = 20.0
-model1 = XXZModel(1.0, 1.0)
+delta = 0.0
+model = XXZModel(delta, 1.0)
 
-T = model1.T
-W = model1.W
-d = model1.d
-ph_leg = model1.ph_leg
+T = model.T
+W = model.W
+d = model.d
+ph_leg = model.ph_leg
 
 psi = CMPS(T.Q, T.L)
 Lpsi = CMPS(T.Q, T.R)
@@ -24,9 +24,10 @@ end
 
 power_counter = 0
 step = 0
-Fmin = 9.9e9
+fmin = 9.9e9
 omega = 1.0
 eta = 0.05
+tau = 10.0
 s = PauliSpin()
 
 while power_counter < 3
@@ -41,27 +42,40 @@ while power_counter < 3
     Lpsi = multiply(W, psi)
 
     # 可观测量
-    F_value = F(psi, Lpsi, T, beta)
-    Cv_value = Cv(psi, Lpsi, T, beta)
+    f_value = f(psi, Lpsi, T, beta)
+    cv_value = cv(psi, Lpsi, T, beta)
+    corr_value = corr(psi, Lpsi, T, s.Z/2, s.Z/2, beta, tau)
     chi_value = chi(psi, Lpsi, T, s.Z/2, s.Z/2, beta, omega) / beta
     chi2_value = chi2(psi, Lpsi, T, s.Z/2, s.Z/2, beta, omega, eta)
     spectral_value = spectral(psi, Lpsi, T, s.Z/2, s.Z/2, beta, omega, eta)
 
     # 打印输出
-    @printf("%d %.12f %.12f %.12f %.12f %.12f\n", step, F_value, Cv_value, chi_value, chi2_value, spectral_value)
+    @printf("%d %.9f %.9f %.9f %.9f %.9f %.9f\n", step, f_value, cv_value, corr_value, chi_value, chi2_value, spectral_value)
 
     step += 1
     
     # 连续三次达到优化阈值输出
-    if F_value < Fmin - 1e-11
+    if f_value < fmin - 1e-8
         power_counter = 0
-        Fmin = F_value
+        fmin = f_value
     else
         power_counter += 1
     end
 end
 
-# filename = @sprintf "1bondD_%d_beta_%.1f_omega_%.1f_eta_%.1f.jld2" bondD beta omega eta
-# @save filename psi Lpsi
+# 生成文件名
+filename = @sprintf "delta_%.1f_bond_%d_beta_%.1f.jld2" delta bondD beta
+
+# 指定存储路径
+directory = joinpath("data")
+filepath = joinpath(directory, filename)
+
+# 创建目录（如果尚不存在）
+mkpath(directory)
+
+# 保存变量到指定路径
+@save filepath psi Lpsi
+
+
 
 
