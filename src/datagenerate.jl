@@ -3,7 +3,7 @@ using Printf
 using JLD2
 using cMPO
 
-bondD = 10
+bondD = 15
 beta = 20.0
 delta = 0.0
 model = XXZModel(delta, 1.0)
