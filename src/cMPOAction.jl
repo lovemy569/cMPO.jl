@@ -313,7 +313,7 @@ function interpolate_cut(cut1::Matrix, cut2::Matrix, theta::Float64)
     return U * V'
 end
 
-function adaptive_mera_update(mps::CMPS, beta::Float64, bond::Int, atol::Float64=1e-9, btol::Float64=1e-9, maxiter::Int=50, interpolate::Bool=true)
+function adaptive_mera_update(mps::CMPS, beta::Float64, bond::Int, atol::Float64=1e-5, btol::Float64=1e-9, maxiter::Int=50, interpolate::Bool=true)
     step = 1
     n₀ = exp(ln_ovlp(mps, mps, beta))
 

@@ -5,9 +5,9 @@ using Plots
 
 # 定义数据集
 datasets = [
-    (delta=0.0, filepath="data/delta_0.0_bond_10_beta_20.0.jld2"),
-    (delta=1.0, filepath="data/delta_1.0_bond_10_beta_20.0.jld2"),
-    (delta=2.0, filepath="data/delta_2.0_bond_10_beta_20.0.jld2")
+    (delta=0.0, filepath="data/delta_0.0_bond_15_beta_20.0.jld2"),
+    (delta=1.0, filepath="data/delta_1.0_bond_15_beta_20.0.jld2"),
+    (delta=2.0, filepath="data/delta_2.0_bond_15_beta_20.0.jld2")
 ]
 
 # 定义颜色和形状
@@ -88,8 +88,8 @@ function plot_fig_2(datasets, cv, corr, chi, spectral)
     end
 
     # 将四个图形组合到一个 subplot 中
-    final_plot = plot(p1, p2, p3, p4, layout=(2, 2), plot_title="bond dimension 10", titlefont=font("times new roman", 16))
-    savefig(final_plot, joinpath("data", "bond10_reproduce_fig_2.png"))
+    final_plot = plot(p1, p2, p3, p4, layout=(2, 2), plot_title="bond dimension 15", titlefont=font("times new roman", 16))
+    savefig(final_plot, joinpath("data", "bond15_reproduce_fig_2.png"))
     display(final_plot)
 end
 
@@ -98,7 +98,7 @@ plot_fig_2(datasets, cv, corr, chi, spectral)
 ##################################################################################################
 
 function plot_fig_S3(psi, Lpsi, T, s, beta, eta1, eta2, omega_range)
-    @load "data/delta_0.0_bond_10_beta_20.0.jld2" psi Lpsi
+    @load "data/delta_0.0_bond_20_beta_20.0.jld2" psi Lpsi
     spectral_values5 = []
     spectral_values1 = []
 
@@ -112,20 +112,20 @@ function plot_fig_S3(psi, Lpsi, T, s, beta, eta1, eta2, omega_range)
         push!(spectral_values1, spectral_value1)
     end
 
-    scatter(omega_range, spectral_values5, xscale=:log10, xlabel="ω", ylabel="S(ω)",
-            markercolor=:white, markershape=:circle, markerstrokecolor=:red, markerstrokewidth=1.5,
-            markerfillcolor=:transparent, label="η = $eta1", ylims=(-0.5, 2.5))
-    plot!(omega_range, spectral_values5, linecolor=:red, linestyle=:dash, linewidth=1.0, label=false)
-
-    scatter!(omega_range, spectral_values1, xscale=:log10, xlabel="ω", ylabel="S(ω)",
+    scatter(omega_range, spectral_values1, xscale=:log10, xlabel="ω", ylabel="S(ω)",
             markercolor=:white, markershape=:rect, markerstrokecolor=:blue, markerstrokewidth=1.5,
             markerfillcolor=:transparent, label="η = $eta2", ylims=(-0.5, 2.5))
     plot!(omega_range, spectral_values1, linecolor=:blue, linestyle=:dash, linewidth=1.0, label=false)
 
-    savefig(current(), joinpath("data", "bond10_reproduce_fig_s3.png"))
+    scatter!(omega_range, spectral_values5, xscale=:log10, xlabel="ω", ylabel="S(ω)",
+            markercolor=:white, markershape=:circle, markerstrokecolor=:red, markerstrokewidth=1.5,
+            markerfillcolor=:transparent, label="η = $eta1", ylims=(-0.5, 2.5))
+    plot!(omega_range, spectral_values5, linecolor=:red, linestyle=:dash, linewidth=1.0, label=false)
+
+    savefig(current(), joinpath("data", "bond20_reproduce_fig_s3.png"))
     display(current())
 end
 
 # spectral function with η = 0.05 or 0.1
-omegas = range(0.01, stop=10, length=200)
+omegas = range(0.01, stop=10, length=500)
 plot_fig_S3(psi, Lpsi, T, s, 20.0, 0.05, 0.1, omegas)
