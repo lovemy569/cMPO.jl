@@ -5,7 +5,7 @@ using cMPO
 
 bondD = 20
 beta = 20.0
-delta = 1.0
+delta = 2.0
 model = XXZModel(delta, 1.0)
 
 T = model.T

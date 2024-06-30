@@ -11,7 +11,7 @@ You can change and run the datagenerate related parameters in src to obtain the 
 
 I have uploaded some raw data in the data folder, which can be processed by dataprocess to obtain FIG.2 and FIG.S3 in the article.
 
-It is not clear whether similar results can be obtained with higher key dimensions (e.g. 30). If there are any errors or discoveries in the future, this code base will be updated. As the first completed Julia code, thanks to [GiggleLiu](https://github.com/GiggleLiu) for his guidance, the [Python source code](https://github.com/TensorBFS/cMPO) provided by the author of the article, and [Sharon-Liang/JuliaCMPO](https://github.com/Sharon-Liang/JuliaCMPO) for reproducing this article before.
+It is not clear whether similar results can be obtained with higher bond dimensions (e.g. 30). If there are any errors or discoveries in the future, this code base will be updated. As the first completed Julia code, thanks to [GiggleLiu](https://github.com/GiggleLiu) for his guidance, the [Python source code](https://github.com/TensorBFS/cMPO) provided by the author of the article, and [Sharon-Liang/JuliaCMPO](https://github.com/Sharon-Liang/JuliaCMPO) for reproducing this article before.
 
 For more details, please refer to document.
 
